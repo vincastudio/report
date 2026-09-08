@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Report sul campo</title>
+<title>SiteReport</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Slab:wght@600;700&display=swap" rel="stylesheet">
@@ -24,7 +24,7 @@
     --danger:#B4472F;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+  html,body{margin:0;padding:0;overflow-x:hidden;}
   body{
     background:var(--paper);
     color:var(--ink);
@@ -97,7 +97,7 @@
   input[type="text"]:focus, input[type="date"]:focus, textarea:focus{
     border-color:var(--amber-dark);
   }
-  input[type="date"]{ text-align:left; max-width:100%; min-width:0; }
+  input[type="date"]{ text-align:left; display:block; width:100%; max-width:100%; min-width:0; box-sizing:border-box; }
   textarea{ min-height:130px; resize:vertical; line-height:1.5; }
   #presenti{ min-height:0; height:76px; }
   .input-row{ display:flex; gap:8px; align-items:center; }
@@ -252,61 +252,128 @@
   }
   .status.error{ color:var(--danger); }
   .status.ok{ color:#2E6B4F; }
+  .login-intro{
+    padding:20px 22px 4px;
+    font-size:13.5px;
+    color:var(--ink-soft);
+  }
+  .session-bar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:14px 22px;
+    background:var(--paper);
+    border-bottom:1px solid var(--line);
+  }
+  .session-bar .session-user{
+    font-size:13px;
+    font-weight:600;
+    color:var(--ink-soft);
+  }
+  .session-right{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .session-right img{
+    width:36px; height:36px;
+    object-fit:contain;
+    border-radius:3px;
+    background:#fff;
+    border:1px solid var(--line);
+  }
+  .logout-btn{
+    flex-shrink:0;
+    border:1px solid var(--line);
+    background:none;
+    color:var(--ink-soft);
+    font-family:'Inter',system-ui,sans-serif;
+    font-size:12.5px;
+    font-weight:600;
+    padding:7px 12px;
+    border-radius:3px;
+    cursor:pointer;
+  }
 </style>
 </head>
 <body>
 <div class="app-shell">
   <header class="topbar">
-    <h1>Report sul campo</h1>
+    <h1>SiteReport</h1>
     <p>Compila la scheda e genera il PDF riepilogativo</p>
   </header>
 
   <main class="sheet">
-    <section class="field">
-      <label for="title">Luogo</label>
-      <div class="input-row">
-        <input type="text" id="title" placeholder="es. Via Enzo Ferrari 3, Bologna (BO)">
-        <button type="button" id="geoBtn" class="geo-btn" title="Usa posizione attuale" aria-label="Usa posizione attuale">📍</button>
-      </div>
-      <div class="map-box" id="mapBox" hidden>
-        <div id="leafletMap" class="leaflet-map"></div>
-        <p class="map-attrib">Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community</p>
-      </div>
-      <p class="hint" id="geoStatus"></p>
-    </section>
+    <div id="loginScreen">
+      <p class="login-intro">Accedi con le tue credenziali per iniziare.</p>
+      <section class="field">
+        <label for="loginUsername">Nome utente</label>
+        <input type="text" id="loginUsername" placeholder="Nome utente" autocomplete="username">
+      </section>
+      <section class="field">
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+      </section>
+      <button type="button" class="primary-btn" id="loginBtn">Accedi</button>
+      <p class="status" id="loginStatus" aria-live="polite"></p>
+    </div>
 
-    <section class="field">
-      <label for="date">Data del sopralluogo</label>
-      <input type="date" id="date">
-    </section>
-
-    <section class="field">
-      <label for="presenti">Presenti</label>
-      <textarea id="presenti" rows="3" placeholder="Nomi delle persone presenti al sopralluogo (facoltativo)"></textarea>
-    </section>
-
-    <section class="field">
-      <label for="photoInput">Foto <span class="count" id="photoCount">0 di 10</span></label>
-      <div class="photo-grid" id="photoGrid">
-        <label for="photoInput" class="add-tile" id="addTile" aria-label="Aggiungi foto">+</label>
-      </div>
-      <input type="file" id="photoInput" accept="image/*" multiple style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;">
-      <div class="caption-editor" id="captionEditor" hidden>
-        <label for="captionEditorInput" id="captionEditorLabel">Didascalia</label>
-        <div class="caption-editor-row">
-          <input type="text" id="captionEditorInput" placeholder="Didascalia (facoltativa)">
-          <button type="button" id="captionEditorDone">Fatto</button>
+    <div id="appContent" hidden>
+      <div class="session-bar">
+        <span class="session-user" id="sessionUser"></span>
+        <div class="session-right">
+          <img id="companyLogoImg" alt="Logo società" hidden>
+          <button type="button" class="logout-btn" id="logoutBtn">Esci</button>
         </div>
       </div>
-    </section>
 
-    <section class="field">
-      <label for="notes">Note</label>
-      <textarea id="notes" placeholder="Scrivi le tue osservazioni..."></textarea>
-    </section>
+      <section class="field">
+        <label for="title">Luogo</label>
+        <div class="input-row">
+          <input type="text" id="title" placeholder="es. Via Enzo Ferrari 3, Bologna (BO)">
+          <button type="button" id="geoBtn" class="geo-btn" title="Usa posizione attuale" aria-label="Usa posizione attuale">📍</button>
+        </div>
+        <div class="map-box" id="mapBox" hidden>
+          <div id="leafletMap" class="leaflet-map"></div>
+          <p class="map-attrib">Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community</p>
+        </div>
+        <p class="hint" id="geoStatus"></p>
+      </section>
 
-    <button type="button" class="primary-btn" id="generateBtn">Genera PDF</button>
-    <p class="status" id="status" aria-live="polite"></p>
+      <section class="field">
+        <label for="date">Data del sopralluogo</label>
+        <input type="date" id="date">
+      </section>
+
+      <section class="field">
+        <label for="presenti">Presenti</label>
+        <textarea id="presenti" rows="3" placeholder="Nomi delle persone presenti al sopralluogo (facoltativo)"></textarea>
+      </section>
+
+      <section class="field">
+        <label for="photoInput">Foto <span class="count" id="photoCount">0 di 10</span></label>
+        <div class="photo-grid" id="photoGrid">
+          <label for="photoInput" class="add-tile" id="addTile" aria-label="Aggiungi foto">+</label>
+        </div>
+        <input type="file" id="photoInput" accept="image/*" multiple style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;">
+        <div class="caption-editor" id="captionEditor" hidden>
+          <label for="captionEditorInput" id="captionEditorLabel">Didascalia</label>
+          <div class="caption-editor-row">
+            <input type="text" id="captionEditorInput" placeholder="Didascalia (facoltativa)">
+            <button type="button" id="captionEditorDone">Fatto</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="field">
+        <label for="notes">Note</label>
+        <textarea id="notes" placeholder="Scrivi le tue osservazioni..."></textarea>
+      </section>
+
+      <button type="button" class="primary-btn" id="generateBtn">Genera PDF</button>
+      <p class="status" id="status" aria-live="polite"></p>
+    </div>
   </main>
 </div>
 
@@ -324,6 +391,24 @@
   const geoBtn = document.getElementById('geoBtn');
   const mapBox = document.getElementById('mapBox');
   const geoStatus = document.getElementById('geoStatus');
+
+  const loginScreen = document.getElementById('loginScreen');
+  const appContent = document.getElementById('appContent');
+  const loginUsernameInput = document.getElementById('loginUsername');
+  const loginPasswordInput = document.getElementById('loginPassword');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginStatus = document.getElementById('loginStatus');
+  const sessionUser = document.getElementById('sessionUser');
+  const companyLogoImg = document.getElementById('companyLogoImg');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  // Sostituisci con l'URL di produzione (senza "-test") una volta attivato il workflow n8n.
+  const LOGIN_WEBHOOK_URL = 'https://n8n.srv1194647.hstgr.cloud/webhook-test/sitereport-login';
+  // TODO: sostituire con l'URL di produzione (senza "-test") una volta attivato il workflow n8n.
+  const LOG_WEBHOOK_URL = 'https://n8n.srv1194647.hstgr.cloud/webhook-test/69b893cf-b9ad-4d21-b345-0d179db73b1d';
+
+  let session = null; // { username, companyName, address, vat, website, email, logoUrl }
+  let logoPdfData = null; // { dataUrl, width, height } — logo pronto per il PDF, se caricato con successo
 
   const addTile = document.getElementById('addTile');
   const captionEditor = document.getElementById('captionEditor');
@@ -397,6 +482,122 @@
   });
 
   captionEditorDone.addEventListener('click', closeCaptionEditor);
+
+  // --- Login, sessione e log azioni (n8n) ---
+  function setLoginStatus(msg, type){
+    loginStatus.textContent = msg;
+    loginStatus.className = 'status' + (type ? ' ' + type : '');
+  }
+
+  function companyInitials(name){
+    if (!name) return 'SR';
+    const words = name.trim().split(/\s+/).filter(w => w.length > 1);
+    const initials = ((words[0] || '')[0] || '') + ((words[1] || '')[0] || '');
+    return (initials || 'SR').toUpperCase();
+  }
+
+  function loadLogoForPdf(url){
+    logoPdfData = null;
+    if (!url) return;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try{
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        logoPdfData = { dataUrl: canvas.toDataURL('image/png'), width: img.naturalWidth, height: img.naturalHeight };
+      }catch(e){
+        logoPdfData = null; // canvas "tainted" per CORS: nel PDF si userà il badge con iniziali
+      }
+    };
+    img.onerror = () => { logoPdfData = null; };
+    img.src = url;
+  }
+
+  function logAction(action){
+    if (!session) return;
+    const payload = {
+      username: session.username,
+      datetime: new Date().toISOString(),
+      event: action
+    };
+    if (!LOG_WEBHOOK_URL || LOG_WEBHOOK_URL.indexOf('INSERIRE_URL') === 0) return; // webhook non ancora configurato
+    fetch(LOG_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => { /* il logging non deve mai bloccare l'uso dell'app */ });
+  }
+
+  function onLoginSuccess(){
+    loginScreen.hidden = true;
+    appContent.hidden = false;
+    sessionUser.textContent = `Utente: ${session.username}`;
+    if (session.logoUrl){
+      companyLogoImg.src = session.logoUrl;
+      companyLogoImg.hidden = false;
+      companyLogoImg.onerror = () => { companyLogoImg.hidden = true; };
+      loadLogoForPdf(session.logoUrl);
+    } else {
+      companyLogoImg.hidden = true;
+    }
+    logAction('login');
+  }
+
+  async function attemptLogin(){
+    const username = loginUsernameInput.value.trim();
+    const password = loginPasswordInput.value;
+    if (!username || !password){
+      setLoginStatus('Inserisci nome utente e password.', 'error');
+      return;
+    }
+    loginBtn.disabled = true;
+    setLoginStatus('Accesso in corso...');
+    try{
+      const resp = await fetch(LOGIN_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      if (!resp.ok) throw new Error('Risposta non valida dal server');
+      const data = await resp.json();
+      if (data && data.success){
+        session = {
+          username: data.username || username,
+          companyName: data.companyName || '',
+          address: data.address || '',
+          vat: data.vat || '',
+          website: data.website || '',
+          email: data.email || '',
+          logoUrl: data.logoUrl || ''
+        };
+        setLoginStatus('');
+        onLoginSuccess();
+      } else {
+        setLoginStatus((data && data.message) || 'Nome utente o password non corretti.', 'error');
+      }
+    }catch(err){
+      setLoginStatus('Impossibile contattare il servizio di accesso. Controlla la connessione e riprova.', 'error');
+    }finally{
+      loginBtn.disabled = false;
+    }
+  }
+
+  loginBtn.addEventListener('click', attemptLogin);
+  [loginUsernameInput, loginPasswordInput].forEach(el => {
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') attemptLogin(); });
+  });
+
+  logoutBtn.addEventListener('click', () => {
+    session = null;
+    logoPdfData = null;
+    appContent.hidden = true;
+    loginScreen.hidden = false;
+    loginPasswordInput.value = '';
+    loginUsernameInput.focus();
+  });
 
   // --- Gestione foto ---
   function renderPhotoGrid(){
@@ -620,13 +821,10 @@
       setStatus('Inserisci una data valida.', 'error');
       return;
     }
-    if (photos.length === 0){
-      setStatus('Aggiungi almeno una foto prima di generare il PDF.', 'error');
-      return;
-    }
 
     generateBtn.disabled = true;
     setStatus('Generazione del PDF in corso...');
+    logAction('generate_pdf');
 
     await new Promise(resolve => setTimeout(resolve, 30));
 
@@ -659,12 +857,11 @@
         const LINE = [222,224,217];
         const FOOTER_H = 21;
 
-        const COMPANY_NAME = 'GeoTec Studio Associato S.r.l.';
-        const COMPANY_ADDRESS = "Via dell'Artigianato 24, 40128 Bologna (BO)";
-        const COMPANY_VAT = 'P.IVA 03456789012';
-        const COMPANY_WEB = 'www.geotecstudio.it';
-        const COMPANY_EMAIL = 'info@geotecstudio.it';
-        const COMPANY_INITIALS = 'GT';
+        const COMPANY_NAME = (session && session.companyName) || '';
+        const COMPANY_ADDRESS = (session && session.address) || '';
+        const COMPANY_VAT = (session && session.vat) || '';
+        const COMPANY_WEB = (session && session.website) || '';
+        const COMPANY_EMAIL = (session && session.email) || '';
 
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ unit:'mm', format:'a4' });
@@ -679,12 +876,19 @@
           const size = Math.min(16, bandH - 8);
           const bx = pageW - margin - size;
           const by = (bandH - size) / 2;
-          doc.setFillColor(...NAVY);
-          doc.roundedRect(bx, by, size, size, 2.5, 2.5, 'F');
-          doc.setFont('helvetica','bold');
-          doc.setFontSize(size * 0.7);
-          doc.setTextColor(255,255,255);
-          doc.text(COMPANY_INITIALS, bx + size/2, by + size/2 + size*0.24, { align:'center' });
+          if (logoPdfData){
+            const ratio = logoPdfData.width / logoPdfData.height;
+            let w = size, h = size;
+            if (ratio > 1){ h = size / ratio; } else { w = size * ratio; }
+            doc.addImage(logoPdfData.dataUrl, 'PNG', bx + (size - w) / 2, by + (size - h) / 2, w, h);
+          } else {
+            doc.setFillColor(...NAVY);
+            doc.roundedRect(bx, by, size, size, 2.5, 2.5, 'F');
+            doc.setFont('helvetica','bold');
+            doc.setFontSize(size * 0.7);
+            doc.setTextColor(255,255,255);
+            doc.text(companyInitials(COMPANY_NAME), bx + size/2, by + size/2 + size*0.24, { align:'center' });
+          }
         }
 
         function drawMainHeader(){
@@ -848,9 +1052,10 @@
           doc.setFont('helvetica','normal');
           doc.setFontSize(7.8);
           doc.setTextColor(...INK_SOFT);
-          doc.text(`${COMPANY_NAME} — ${COMPANY_ADDRESS}`, margin, lineY + 5);
-          doc.text(`${COMPANY_VAT}  ·  ${COMPANY_WEB}  ·  ${COMPANY_EMAIL}`, margin, lineY + 9.5);
-          doc.text('© Tutti i diritti riservati', pageW / 2, lineY + 5, { align:'center' });
+          const footerLine1 = [COMPANY_NAME, COMPANY_ADDRESS].filter(Boolean).join(' — ');
+          const footerLine2 = [COMPANY_VAT, COMPANY_WEB, COMPANY_EMAIL].filter(Boolean).join('  ·  ');
+          if (footerLine1) doc.text(footerLine1, margin, lineY + 5);
+          if (footerLine2) doc.text(footerLine2, margin, lineY + 9.5);
           doc.text(`Pagina ${p} di ${totalPages}`, pageW - margin, lineY + 5, { align:'right' });
         }
 
