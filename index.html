@@ -133,6 +133,13 @@
     flex-wrap:wrap;
     gap:10px;
   }
+  .thumb-item{
+    width:84px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:4px;
+  }
   .thumb{
     width:84px; height:84px;
     border-radius:4px;
@@ -152,6 +159,10 @@
     font-size:13px;
     line-height:1;
     cursor:pointer;
+  }
+  .thumb-label{
+    font-size:11px;
+    color:var(--ink-soft);
   }
   .add-tile{
     width:84px; height:84px;
@@ -215,7 +226,7 @@
     </section>
 
     <section class="field">
-      <label for="photoInput">Foto <span class="count" id="photoCount">0 di 6</span></label>
+      <label for="photoInput">Foto <span class="count" id="photoCount">0 di 10</span></label>
       <div class="photo-grid" id="photoGrid">
         <label for="photoInput" class="add-tile" id="addTile" aria-label="Aggiungi foto">+</label>
       </div>
@@ -250,7 +261,7 @@
   const micHint = document.getElementById('micHint');
 
   const addTile = document.getElementById('addTile');
-  const MAX_PHOTOS = 6;
+  const MAX_PHOTOS = 10;
   let photos = []; // { dataUrl, width, height }
 
   // --- Data odierna precompilata (calcolata in ora locale, non UTC) ---
@@ -270,16 +281,16 @@
 
   // --- Gestione foto ---
   function renderPhotoGrid(){
-    photoGrid.querySelectorAll('.thumb').forEach(el => el.remove());
+    photoGrid.querySelectorAll('.thumb-item').forEach(el => el.remove());
     photos.forEach((p, i) => {
-      const div = document.createElement('div');
-      div.className = 'thumb';
-      div.innerHTML = `<img src="${p.dataUrl}" alt="Foto ${i+1}"><button type="button" aria-label="Rimuovi foto ${i+1}">×</button>`;
-      div.querySelector('button').addEventListener('click', () => {
+      const item = document.createElement('div');
+      item.className = 'thumb-item';
+      item.innerHTML = `<div class="thumb"><img src="${p.dataUrl}" alt="Foto ${i+1}"><button type="button" aria-label="Rimuovi foto ${i+1}">×</button></div><span class="thumb-label">Foto ${i+1}</span>`;
+      item.querySelector('button').addEventListener('click', () => {
         photos.splice(i,1);
         renderPhotoGrid();
       });
-      photoGrid.insertBefore(div, addTile);
+      photoGrid.insertBefore(item, addTile);
     });
     addTile.style.display = photos.length < MAX_PHOTOS ? 'flex' : 'none';
     photoCount.textContent = `${photos.length} di ${MAX_PHOTOS}`;
@@ -332,10 +343,22 @@
 
   // --- Dettatura vocale ---
   const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const KEYBOARD_FALLBACK = 'In alternativa, tocca il campo Note e usa il tasto microfono della tastiera del telefono: funziona sempre, anche senza questa funzione.';
   let recognition = null;
   let recording = false;
 
-  if (SpeechRecognitionImpl){
+  function disableMic(hintText){
+    micBtn.disabled = true;
+    micHint.textContent = hintText;
+  }
+
+  if (!SpeechRecognitionImpl){
+    disableMic('Dettatura vocale non disponibile in questo browser. ' + KEYBOARD_FALLBACK);
+  } else if (!window.isSecureContext){
+    // Il microfono richiede una pagina caricata in modo sicuro (https, o un vero indirizzo web).
+    // Se il file è aperto localmente (file://) il browser blocca l'accesso al microfono.
+    disableMic('La dettatura richiede che la pagina sia aperta da un indirizzo web sicuro (https), non da file locale. ' + KEYBOARD_FALLBACK);
+  } else {
     recognition = new SpeechRecognitionImpl();
     recognition.lang = 'it-IT';
     recognition.continuous = true;
@@ -353,10 +376,18 @@
         notesInput.value += sep + finalText.trim() + ' ';
       }
     };
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
       recording = false;
       micBtn.classList.remove('recording');
-      setStatus('Dettatura interrotta: verifica il permesso per il microfono.', 'error');
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed'){
+        setStatus('Microfono non autorizzato: controlla i permessi del browser per questo sito, poi riprova. ' + KEYBOARD_FALLBACK, 'error');
+      } else if (event.error === 'no-speech'){
+        setStatus('Non ho sentito nulla, riprova pure.', 'error');
+      } else if (event.error === 'audio-capture'){
+        setStatus('Nessun microfono disponibile su questo dispositivo. ' + KEYBOARD_FALLBACK, 'error');
+      } else {
+        setStatus('Dettatura interrotta (' + event.error + '). Puoi riprovare toccando di nuovo il microfono. ' + KEYBOARD_FALLBACK, 'error');
+      }
     };
     recognition.onend = () => {
       recording = false;
@@ -370,14 +401,13 @@
           recording = true;
           micBtn.classList.add('recording');
           setStatus('');
-        }catch(err){ /* già avviato */ }
+        }catch(err){
+          setStatus('Non sono riuscito ad avviare la dettatura. Riprova tra un istante. ' + KEYBOARD_FALLBACK, 'error');
+        }
       } else {
         recognition.stop();
       }
     });
-  } else {
-    micBtn.disabled = true;
-    micHint.textContent = 'Dettatura vocale non disponibile in questo browser: usa il microfono della tastiera del telefono.';
   }
 
   // --- Stato ---
@@ -411,58 +441,136 @@
 
     setTimeout(() => {
       try{
+        const NAVY = [15,31,41];
+        const AMBER = [214,162,60];
+        const INK = [19,38,48];
+        const INK_SOFT = [91,107,115];
+        const LINE = [222,224,217];
+        const FOOTER_H = 14;
+
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ unit:'mm', format:'a4' });
         const pageW = doc.internal.pageSize.getWidth();
         const pageH = doc.internal.pageSize.getHeight();
         const margin = 16;
         const maxW = pageW - margin*2;
-        let y = margin;
+        const bottomLimit = pageH - FOOTER_H;
+        let y;
 
-        doc.setFont('helvetica','bold');
-        doc.setFontSize(18);
-        const titleLines = doc.splitTextToSize(title, maxW);
-        doc.text(titleLines, margin, y);
-        y += titleLines.length * 7 + 2;
+        function drawMainHeader(){
+          doc.setFont('helvetica','bold');
+          doc.setFontSize(19);
+          const titleLines = doc.splitTextToSize(title, maxW).slice(0,2);
+          const bandH = 15 + titleLines.length * 8 + 9;
+          doc.setFillColor(...NAVY);
+          doc.rect(0, 0, pageW, bandH, 'F');
+          doc.setTextColor(255,255,255);
+          let ty = 15;
+          titleLines.forEach(line => { doc.text(line, margin, ty); ty += 8; });
+          doc.setFont('helvetica','normal');
+          doc.setFontSize(10.5);
+          doc.setTextColor(...AMBER);
+          doc.text(`Data: ${formatDateIt(dateVal)}`, margin, ty + 1);
+          doc.setDrawColor(...AMBER);
+          doc.setLineWidth(0.8);
+          doc.line(0, bandH, pageW, bandH);
+          return bandH + 13;
+        }
 
-        doc.setFont('helvetica','normal');
-        doc.setFontSize(11);
-        doc.setTextColor(90,90,90);
-        doc.text(`Data: ${formatDateIt(dateVal)}`, margin, y);
-        doc.setTextColor(20,20,20);
-        y += 6;
-        doc.setDrawColor(210,210,210);
-        doc.line(margin, y, pageW - margin, y);
-        y += 8;
+        function drawContinuationHeader(){
+          const h = 15;
+          doc.setFillColor(...NAVY);
+          doc.rect(0, 0, pageW, h, 'F');
+          doc.setFont('helvetica','bold');
+          doc.setFontSize(10);
+          doc.setTextColor(255,255,255);
+          const t = title.length > 70 ? title.slice(0,67) + '…' : title;
+          doc.text(t, margin, 10);
+          doc.setDrawColor(...AMBER);
+          doc.setLineWidth(0.6);
+          doc.line(0, h, pageW, h);
+          return h + 11;
+        }
+
+        function newPage(){
+          doc.addPage();
+          y = drawContinuationHeader();
+        }
+
+        function sectionLabel(text){
+          if (y + 12 > bottomLimit) newPage();
+          doc.setFont('helvetica','bold');
+          doc.setFontSize(11.5);
+          doc.setTextColor(...INK_SOFT);
+          doc.text(text, margin, y);
+          doc.setDrawColor(...LINE);
+          doc.setLineWidth(0.4);
+          doc.line(margin, y + 2.6, pageW - margin, y + 2.6);
+          y += 10;
+        }
+
+        y = drawMainHeader();
 
         if (notes){
-          doc.setFontSize(12);
-          const noteLines = doc.splitTextToSize(notes, maxW);
+          sectionLabel('Note');
+          doc.setFont('helvetica','normal');
+          doc.setFontSize(11);
+          doc.setTextColor(...INK);
           const lineH = 6;
-          noteLines.forEach(line => {
-            if (y + lineH > pageH - margin){ doc.addPage(); y = margin; }
+          doc.splitTextToSize(notes, maxW).forEach(line => {
+            if (y + lineH > bottomLimit) newPage();
             doc.text(line, margin, y);
             y += lineH;
           });
           y += 6;
         }
 
-        photos.forEach((p, i) => {
-          const w = maxW;
-          const h = w * (p.height / p.width);
-          const captionH = 8;
-          if (y + h + captionH > pageH - margin){
-            doc.addPage();
-            y = margin;
+        if (photos.length){
+          sectionLabel(`Documentazione fotografica (${photos.length})`);
+          const gap = 6;
+          const colW = (maxW - gap) / 2;
+          const captionGap = 5;
+          const captionH = 5;
+          const rowGap = 7;
+
+          for (let i = 0; i < photos.length; i += 2){
+            const left = photos[i];
+            const right = photos[i+1];
+            const hL = colW * (left.height / left.width);
+            const hR = right ? colW * (right.height / right.width) : 0;
+            const rowH = Math.max(hL, hR);
+
+            if (y + rowH + captionGap + captionH + rowGap > bottomLimit) newPage();
+
+            doc.addImage(left.dataUrl, 'JPEG', margin, y, colW, hL);
+            doc.setFont('helvetica','normal');
+            doc.setFontSize(9);
+            doc.setTextColor(...INK_SOFT);
+            doc.text(`Foto ${i+1}`, margin + colW/2, y + hL + captionGap, { align:'center' });
+
+            if (right){
+              const xR = margin + colW + gap;
+              doc.addImage(right.dataUrl, 'JPEG', xR, y, colW, hR);
+              doc.text(`Foto ${i+2}`, xR + colW/2, y + hR + captionGap, { align:'center' });
+            }
+
+            doc.setTextColor(...INK);
+            y += rowH + captionGap + captionH + rowGap;
           }
-          doc.addImage(p.dataUrl, 'JPEG', margin, y, w, h);
-          y += h + 5;
-          doc.setFontSize(9);
-          doc.setTextColor(120,120,120);
-          doc.text(`Foto ${i+1} di ${photos.length}`, margin, y);
-          doc.setTextColor(20,20,20);
-          y += 8;
-        });
+        }
+
+        const totalPages = doc.internal.getNumberOfPages();
+        for (let p = 1; p <= totalPages; p++){
+          doc.setPage(p);
+          doc.setDrawColor(...LINE);
+          doc.setLineWidth(0.3);
+          doc.line(margin, pageH - FOOTER_H + 3, pageW - margin, pageH - FOOTER_H + 3);
+          doc.setFont('helvetica','normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(...INK_SOFT);
+          doc.text('Reportage sul campo', margin, pageH - 6);
+          doc.text(`Pagina ${p} di ${totalPages}`, pageW - margin, pageH - 6, { align:'right' });
+        }
 
         const safeTitle = title.toLowerCase()
           .replace(/[^a-z0-9\s-]/gi,'')
