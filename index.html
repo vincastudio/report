@@ -97,7 +97,7 @@
   input[type="text"]:focus, input[type="date"]:focus, textarea:focus{
     border-color:var(--amber-dark);
   }
-  input[type="date"]{ text-align:left; }
+  input[type="date"]{ text-align:left; max-width:100%; min-width:0; }
   textarea{ min-height:130px; resize:vertical; line-height:1.5; }
   #presenti{ min-height:0; height:76px; }
   .input-row{ display:flex; gap:8px; align-items:center; }
@@ -122,7 +122,7 @@
     border-radius:4px;
     overflow:hidden;
   }
-  .leaflet-map{ width:100%; height:180px; }
+  .leaflet-map{ width:100%; height:230px; }
   .map-attrib{
     margin:0;
     padding:3px 6px;
@@ -166,23 +166,51 @@
     line-height:1;
     cursor:pointer;
   }
-  .thumb-num{
-    font-size:11px;
-    font-weight:600;
-    color:var(--ink-soft);
-  }
-  .thumb-caption{
+  .thumb-item.selected .thumb{ border-color:var(--amber-dark); border-width:2px; }
+  .thumb-label-btn{
     width:100%;
     font-size:11px;
-    color:var(--ink);
+    color:var(--ink-soft);
     background:var(--paper);
     border:1px solid var(--line);
     border-radius:3px;
     padding:4px 5px;
     text-align:center;
     font-family:'Inter',system-ui,sans-serif;
+    cursor:pointer;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
-  .thumb-caption:focus{ border-color:var(--amber-dark); outline:none; }
+  .thumb-label-btn.has-caption{ color:var(--ink); border-color:var(--amber-dark); }
+  .caption-editor{
+    margin-top:12px;
+    padding:12px;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:4px;
+  }
+  .caption-editor label{
+    display:block;
+    font-size:12px;
+    font-weight:600;
+    color:var(--ink-soft);
+    margin-bottom:6px;
+  }
+  .caption-editor-row{ display:flex; gap:8px; }
+  .caption-editor-row input{ flex:1; min-width:0; }
+  .caption-editor-row button{
+    flex-shrink:0;
+    padding:0 16px;
+    background:var(--amber);
+    color:var(--navy);
+    border:none;
+    border-radius:3px;
+    font-weight:700;
+    font-family:'Inter',system-ui,sans-serif;
+    font-size:14px;
+    cursor:pointer;
+  }
   .add-tile{
     width:84px; height:84px;
     border-radius:4px;
@@ -242,7 +270,7 @@
       </div>
       <div class="map-box" id="mapBox" hidden>
         <div id="leafletMap" class="leaflet-map"></div>
-        <p class="map-attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</p>
+        <p class="map-attrib">Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community</p>
       </div>
       <p class="hint" id="geoStatus"></p>
     </section>
@@ -263,6 +291,13 @@
         <label for="photoInput" class="add-tile" id="addTile" aria-label="Aggiungi foto">+</label>
       </div>
       <input type="file" id="photoInput" accept="image/*" multiple style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;">
+      <div class="caption-editor" id="captionEditor" hidden>
+        <label for="captionEditorInput" id="captionEditorLabel">Didascalia</label>
+        <div class="caption-editor-row">
+          <input type="text" id="captionEditorInput" placeholder="Didascalia (facoltativa)">
+          <button type="button" id="captionEditorDone">Fatto</button>
+        </div>
+      </div>
     </section>
 
     <section class="field">
@@ -291,8 +326,13 @@
   const geoStatus = document.getElementById('geoStatus');
 
   const addTile = document.getElementById('addTile');
+  const captionEditor = document.getElementById('captionEditor');
+  const captionEditorLabel = document.getElementById('captionEditorLabel');
+  const captionEditorInput = document.getElementById('captionEditorInput');
+  const captionEditorDone = document.getElementById('captionEditorDone');
   const MAX_PHOTOS = 10;
   let photos = []; // { dataUrl, width, height }
+  let selectedPhotoIndex = null;
 
   // --- Data odierna precompilata (calcolata in ora locale, non UTC) ---
   function todayLocalISO(){
@@ -319,21 +359,60 @@
     return s.trim();
   }
 
+  function truncateCaption(text, maxLen){
+    if (text.length <= maxLen) return text;
+    return text.slice(0, maxLen - 1).trimEnd() + '…';
+  }
+
+  function thumbLabelText(i, caption){
+    const trimmed = (caption || '').trim();
+    return trimmed ? `Foto ${i+1}: ${truncateCaption(trimmed, 16)}` : `Foto ${i+1}`;
+  }
+
+  function closeCaptionEditor(){
+    selectedPhotoIndex = null;
+    captionEditor.hidden = true;
+    photoGrid.querySelectorAll('.thumb-item.selected').forEach(el => el.classList.remove('selected'));
+  }
+
+  function openCaptionEditor(i){
+    selectedPhotoIndex = i;
+    photoGrid.querySelectorAll('.thumb-item').forEach(el => {
+      el.classList.toggle('selected', Number(el.dataset.index) === i);
+    });
+    captionEditorLabel.textContent = `Didascalia — Foto ${i+1}`;
+    captionEditorInput.value = photos[i].caption;
+    captionEditor.hidden = false;
+    captionEditorInput.focus();
+  }
+
+  captionEditorInput.addEventListener('input', (e) => {
+    if (selectedPhotoIndex === null) return;
+    photos[selectedPhotoIndex].caption = e.target.value;
+    const btn = photoGrid.querySelector(`.thumb-item[data-index="${selectedPhotoIndex}"] .thumb-label-btn`);
+    if (btn){
+      btn.textContent = thumbLabelText(selectedPhotoIndex, e.target.value);
+      btn.classList.toggle('has-caption', !!e.target.value.trim());
+    }
+  });
+
+  captionEditorDone.addEventListener('click', closeCaptionEditor);
+
   // --- Gestione foto ---
   function renderPhotoGrid(){
+    closeCaptionEditor();
     photoGrid.querySelectorAll('.thumb-item').forEach(el => el.remove());
     photos.forEach((p, i) => {
       const item = document.createElement('div');
       item.className = 'thumb-item';
-      item.innerHTML = `<div class="thumb"><img src="${p.dataUrl}" alt="Foto ${i+1}"><button type="button" aria-label="Rimuovi foto ${i+1}">×</button></div><span class="thumb-num">Foto ${i+1}</span><input type="text" class="thumb-caption" placeholder="Didascalia (facoltativa)" aria-label="Didascalia foto ${i+1}">`;
-      item.querySelector('button').addEventListener('click', () => {
+      item.dataset.index = i;
+      item.innerHTML = `<div class="thumb"><img src="${p.dataUrl}" alt="Foto ${i+1}"><button type="button" aria-label="Rimuovi foto ${i+1}">×</button></div><button type="button" class="thumb-label-btn${p.caption && p.caption.trim() ? ' has-caption' : ''}" aria-label="Modifica didascalia foto ${i+1}">${thumbLabelText(i, p.caption)}</button>`;
+      item.querySelector('.thumb button').addEventListener('click', () => {
         photos.splice(i,1);
         renderPhotoGrid();
       });
-      const captionInput = item.querySelector('.thumb-caption');
-      captionInput.value = p.caption;
-      captionInput.addEventListener('input', (e) => {
-        p.caption = e.target.value;
+      item.querySelector('.thumb-label-btn').addEventListener('click', () => {
+        openCaptionEditor(i);
       });
       photoGrid.insertBefore(item, addTile);
     });
@@ -417,14 +496,14 @@
     lastGeoCoords = { lat, lon };
     mapBox.hidden = false;
     if (!leafletMapInstance){
-      leafletMapInstance = L.map('leafletMap', { zoomControl:false, attributionControl:false }).setView([lat,lon], 17);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      leafletMapInstance = L.map('leafletMap', { zoomControl:true, attributionControl:false }).setView([lat,lon], 18);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         maxZoom:19,
-        attribution:'&copy; OpenStreetMap contributors'
+        attribution:'Tiles &copy; Esri'
       }).addTo(leafletMapInstance);
       leafletMarker = L.marker([lat,lon]).addTo(leafletMapInstance);
     } else {
-      leafletMapInstance.setView([lat,lon], 17);
+      leafletMapInstance.setView([lat,lon], 18);
       leafletMarker.setLatLng([lat,lon]);
     }
     setTimeout(() => leafletMapInstance.invalidateSize(), 100);
@@ -553,6 +632,9 @@
 
     let mapCapture = null;
     if (!mapBox.hidden && leafletMapInstance && typeof html2canvas === 'function'){
+      const zoomEl = document.querySelector('#leafletMap .leaflet-control-zoom');
+      const zoomPrevDisplay = zoomEl ? zoomEl.style.display : null;
+      if (zoomEl) zoomEl.style.display = 'none';
       try{
         const canvas = await html2canvas(document.getElementById('leafletMap'), {
           useCORS: true,
@@ -562,6 +644,8 @@
         mapCapture = { dataUrl: canvas.toDataURL('image/jpeg', 0.85), width: canvas.width, height: canvas.height };
       }catch(e){
         mapCapture = null; // fallback a testo/coordinate più sotto
+      }finally{
+        if (zoomEl) zoomEl.style.display = zoomPrevDisplay || '';
       }
     }
 
@@ -569,7 +653,7 @@
         const NAVY = [15,31,41];
         const AMBER = [214,162,60];
         const AMBER_DARK = [185,134,42];
-        const HEADER_BG = [244,238,224];
+        const HEADER_BG = [228,239,227];
         const INK = [19,38,48];
         const INK_SOFT = [91,107,115];
         const LINE = [222,224,217];
@@ -678,8 +762,9 @@
           doc.setFont('helvetica','normal');
           doc.setFontSize(8);
           doc.setTextColor(...INK_SOFT);
-          doc.text('© OpenStreetMap contributors', margin, y);
-          y += 6;
+          const attribLines = doc.splitTextToSize('Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, GIS User Community', maxW);
+          doc.text(attribLines, margin, y);
+          y += attribLines.length * 3.6 + 3;
         } else if (lastGeoCoords){
           if (y + 14 > bottomLimit) newPage();
           doc.setFont('helvetica','normal');
@@ -765,6 +850,7 @@
           doc.setTextColor(...INK_SOFT);
           doc.text(`${COMPANY_NAME} — ${COMPANY_ADDRESS}`, margin, lineY + 5);
           doc.text(`${COMPANY_VAT}  ·  ${COMPANY_WEB}  ·  ${COMPANY_EMAIL}`, margin, lineY + 9.5);
+          doc.text('© Tutti i diritti riservati', pageW / 2, lineY + 5, { align:'center' });
           doc.text(`Pagina ${p} di ${totalPages}`, pageW - margin, lineY + 5, { align:'right' });
         }
 
