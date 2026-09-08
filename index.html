@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Slab:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   :root{
     --ink:#132630;
@@ -96,6 +98,40 @@
   }
   textarea{ min-height:130px; resize:vertical; line-height:1.5; }
   #presenti{ min-height:0; height:76px; }
+  .input-row{ display:flex; gap:8px; align-items:center; }
+  .input-row input{ flex:1; min-width:0; }
+  .geo-btn{
+    flex-shrink:0;
+    width:44px; height:44px;
+    border-radius:50%;
+    border:none;
+    background:var(--amber);
+    color:var(--navy);
+    font-size:18px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .geo-btn:disabled{ background:var(--line); color:#8A9096; cursor:not-allowed; }
+  .map-box{
+    margin-top:10px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    overflow:hidden;
+  }
+  .leaflet-map{ width:100%; height:180px; }
+  .map-attrib{
+    margin:0;
+    padding:3px 6px;
+    font-size:10px;
+    color:var(--ink-soft);
+    background:var(--paper);
+  }
+  .map-attrib a{ color:var(--ink-soft); }
+  .hint{ margin:8px 2px 0; font-size:12.5px; color:var(--ink-soft); }
+  .hint.error{ color:var(--danger); }
+  .hint.ok{ color:#2E6B4F; }
   .photo-grid{
     display:flex;
     flex-wrap:wrap;
@@ -198,7 +234,15 @@
   <main class="sheet">
     <section class="field">
       <label for="title">Luogo</label>
-      <input type="text" id="title" placeholder="es. Cantiere via Roma">
+      <div class="input-row">
+        <input type="text" id="title" placeholder="es. Via Enzo Ferrari 3, Bologna (BO)">
+        <button type="button" id="geoBtn" class="geo-btn" title="Usa posizione attuale" aria-label="Usa posizione attuale">📍</button>
+      </div>
+      <div class="map-box" id="mapBox" hidden>
+        <div id="leafletMap" class="leaflet-map"></div>
+        <p class="map-attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</p>
+      </div>
+      <p class="hint" id="geoStatus"></p>
     </section>
 
     <section class="field">
@@ -240,6 +284,9 @@
   const photoCount = document.getElementById('photoCount');
   const generateBtn = document.getElementById('generateBtn');
   const statusEl = document.getElementById('status');
+  const geoBtn = document.getElementById('geoBtn');
+  const mapBox = document.getElementById('mapBox');
+  const geoStatus = document.getElementById('geoStatus');
 
   const addTile = document.getElementById('addTile');
   const MAX_PHOTOS = 10;
@@ -326,6 +373,109 @@
   });
 
   renderPhotoGrid();
+
+  // --- Geolocalizzazione e mappa ---
+  let leafletMapInstance = null;
+  let leafletMarker = null;
+
+  function setGeoStatus(msg, type){
+    geoStatus.textContent = msg;
+    geoStatus.className = 'hint' + (type ? ' ' + type : '');
+  }
+
+  function showMap(lat, lon){
+    mapBox.hidden = false;
+    if (!leafletMapInstance){
+      leafletMapInstance = L.map('leafletMap', { zoomControl:false, attributionControl:false }).setView([lat,lon], 17);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom:19,
+        attribution:'&copy; OpenStreetMap contributors'
+      }).addTo(leafletMapInstance);
+      leafletMarker = L.marker([lat,lon]).addTo(leafletMapInstance);
+    } else {
+      leafletMapInstance.setView([lat,lon], 17);
+      leafletMarker.setLatLng([lat,lon]);
+    }
+    setTimeout(() => leafletMapInstance.invalidateSize(), 100);
+  }
+
+  function formatAddress(addr){
+    if (!addr) return '';
+    const road = addr.road || addr.pedestrian || addr.footway || addr.residential || '';
+    const houseNumber = addr.house_number || '';
+    const city = addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '';
+    let province = '';
+    const isoLvl6 = addr['ISO3166-2-lvl6'];
+    if (isoLvl6 && isoLvl6.indexOf('IT-') === 0){
+      province = isoLvl6.slice(3);
+    } else {
+      province = addr.county || addr.state_district || '';
+    }
+    const streetPart = [road, houseNumber].filter(Boolean).join(' ');
+    const cityPart = province ? `${city} (${province})` : city;
+    return [streetPart, cityPart].filter(Boolean).join(', ');
+  }
+
+  function onGeoError(err){
+    geoBtn.disabled = false;
+    let msg;
+    switch(err.code){
+      case err.PERMISSION_DENIED:
+        msg = 'Permesso negato: consenti l\'accesso alla posizione per questo sito nelle impostazioni del telefono/browser, poi riprova.';
+        break;
+      case err.POSITION_UNAVAILABLE:
+        msg = 'Posizione non disponibile al momento. Riprova, magari all\'aperto.';
+        break;
+      case err.TIMEOUT:
+        msg = 'Rilevamento della posizione troppo lento. Riprova.';
+        break;
+      default:
+        msg = 'Non sono riuscito a rilevare la posizione.';
+    }
+    setGeoStatus(msg, 'error');
+  }
+
+  async function onGeoSuccess(pos){
+    const { latitude, longitude } = pos.coords;
+    showMap(latitude, longitude);
+    setGeoStatus('Posizione rilevata. Recupero indirizzo...');
+    try{
+      const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, {
+        headers: { 'Accept-Language': 'it' }
+      });
+      if (!resp.ok) throw new Error('reverse geocoding fallito');
+      const data = await resp.json();
+      const formatted = formatAddress(data.address);
+      if (formatted){
+        titleInput.value = formatted;
+        setGeoStatus('Luogo compilato automaticamente dalla posizione: controllalo e correggilo se serve.', 'ok');
+      } else {
+        setGeoStatus('Posizione rilevata, ma non sono riuscito a ricavarne un indirizzo leggibile. Scrivi il luogo manualmente.', 'error');
+      }
+    }catch(err){
+      setGeoStatus('Posizione rilevata, ma il recupero dell\'indirizzo è fallito (verifica la connessione). Scrivi il luogo manualmente.', 'error');
+    }finally{
+      geoBtn.disabled = false;
+    }
+  }
+
+  geoBtn.addEventListener('click', () => {
+    if (!('geolocation' in navigator)){
+      setGeoStatus('Geolocalizzazione non disponibile su questo dispositivo o browser.', 'error');
+      return;
+    }
+    if (!window.isSecureContext){
+      setGeoStatus('La geolocalizzazione richiede che la pagina sia aperta da un indirizzo web sicuro (https), non da file locale.', 'error');
+      return;
+    }
+    geoBtn.disabled = true;
+    setGeoStatus('Rilevamento della posizione in corso...');
+    navigator.geolocation.getCurrentPosition(onGeoSuccess, onGeoError, {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 0
+    });
+  });
 
   // --- Stato ---
   function setStatus(msg, type){
