@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
   :root{
     --ink:#132630;
@@ -96,6 +97,7 @@
   input[type="text"]:focus, input[type="date"]:focus, textarea:focus{
     border-color:var(--amber-dark);
   }
+  input[type="date"]{ text-align:left; }
   textarea{ min-height:130px; resize:vertical; line-height:1.5; }
   #presenti{ min-height:0; height:76px; }
   .input-row{ display:flex; gap:8px; align-items:center; }
@@ -307,6 +309,16 @@
     return `${d}/${m}/${y}`;
   }
 
+  function extractComune(luogo){
+    if (!luogo) return '';
+    let s = luogo;
+    const commaIdx = s.lastIndexOf(',');
+    if (commaIdx !== -1) s = s.slice(commaIdx + 1);
+    const parenIdx = s.indexOf('(');
+    if (parenIdx !== -1) s = s.slice(0, parenIdx);
+    return s.trim();
+  }
+
   // --- Gestione foto ---
   function renderPhotoGrid(){
     photoGrid.querySelectorAll('.thumb-item').forEach(el => el.remove());
@@ -377,13 +389,32 @@
   // --- Geolocalizzazione e mappa ---
   let leafletMapInstance = null;
   let leafletMarker = null;
+  let lastGeoCoords = null;
 
   function setGeoStatus(msg, type){
-    geoStatus.textContent = msg;
+    geoStatus.innerHTML = msg;
     geoStatus.className = 'hint' + (type ? ' ' + type : '');
   }
 
+  function isIOS(){ return /iPhone|iPad|iPod/.test(navigator.userAgent); }
+  function isAndroid(){ return /Android/.test(navigator.userAgent); }
+
+  const MANUAL_FALLBACK = ' In alternativa, scrivi il luogo direttamente nel campo qui sopra, oppure copialo da un\'app di mappe (Google Maps, Apple Maps...).';
+
+  function deniedInstructions(){
+    let steps;
+    if (isIOS()){
+      steps = 'Su iPhone: apri Impostazioni → Privacy e sicurezza → Localizzazione e verifica che sia attiva; poi Impostazioni → Safari → Localizzazione → "Chiedi" o "Consenti". Se il sito era già stato bloccato in precedenza, in Safari tocca "AA" nella barra degli indirizzi → Impostazioni sito web → Localizzazione → Consenti, poi ricarica la pagina.';
+    } else if (isAndroid()){
+      steps = 'Su Android: apri Impostazioni del telefono → App → il browser che usi (es. Chrome) → Autorizzazioni → Posizione → consenti. Se il sito era già stato bloccato, tocca l\'icona del lucchetto nella barra degli indirizzi → Autorizzazioni sito → Posizione → Consenti, poi ricarica la pagina.';
+    } else {
+      steps = 'Controlla le autorizzazioni del sito toccando l\'icona del lucchetto (o "AA") nella barra degli indirizzi e assicurati che la localizzazione sia consentita, poi ricarica la pagina.';
+    }
+    return 'Il permesso di localizzazione risulta bloccato. ' + steps + MANUAL_FALLBACK;
+  }
+
   function showMap(lat, lon){
+    lastGeoCoords = { lat, lon };
     mapBox.hidden = false;
     if (!leafletMapInstance){
       leafletMapInstance = L.map('leafletMap', { zoomControl:false, attributionControl:false }).setView([lat,lon], 17);
@@ -421,16 +452,16 @@
     let msg;
     switch(err.code){
       case err.PERMISSION_DENIED:
-        msg = 'Permesso negato: consenti l\'accesso alla posizione per questo sito nelle impostazioni del telefono/browser, poi riprova.';
+        msg = deniedInstructions();
         break;
       case err.POSITION_UNAVAILABLE:
-        msg = 'Posizione non disponibile al momento. Riprova, magari all\'aperto.';
+        msg = 'Posizione non disponibile al momento. Riprova, magari all\'aperto.' + MANUAL_FALLBACK;
         break;
       case err.TIMEOUT:
-        msg = 'Rilevamento della posizione troppo lento. Riprova.';
+        msg = 'Rilevamento della posizione troppo lento. Riprova.' + MANUAL_FALLBACK;
         break;
       default:
-        msg = 'Non sono riuscito a rilevare la posizione.';
+        msg = 'Non sono riuscito a rilevare la posizione.' + MANUAL_FALLBACK;
     }
     setGeoStatus(msg, 'error');
   }
@@ -459,15 +490,26 @@
     }
   }
 
-  geoBtn.addEventListener('click', () => {
+  geoBtn.addEventListener('click', async () => {
     if (!('geolocation' in navigator)){
-      setGeoStatus('Geolocalizzazione non disponibile su questo dispositivo o browser.', 'error');
+      setGeoStatus('Geolocalizzazione non disponibile su questo dispositivo o browser.' + MANUAL_FALLBACK, 'error');
       return;
     }
     if (!window.isSecureContext){
-      setGeoStatus('La geolocalizzazione richiede che la pagina sia aperta da un indirizzo web sicuro (https), non da file locale.', 'error');
+      setGeoStatus('La geolocalizzazione richiede che la pagina sia aperta da un indirizzo web sicuro (https), non da file locale.' + MANUAL_FALLBACK, 'error');
       return;
     }
+
+    if (navigator.permissions && navigator.permissions.query){
+      try{
+        const status = await navigator.permissions.query({ name: 'geolocation' });
+        if (status.state === 'denied'){
+          setGeoStatus(deniedInstructions(), 'error');
+          return;
+        }
+      }catch(e){ /* API non supportata per "geolocation" su questo browser: si procede comunque */ }
+    }
+
     geoBtn.disabled = true;
     setGeoStatus('Rilevamento della posizione in corso...');
     navigator.geolocation.getCurrentPosition(onGeoSuccess, onGeoError, {
@@ -484,7 +526,7 @@
   }
 
   // --- Generazione PDF ---
-  generateBtn.addEventListener('click', () => {
+  generateBtn.addEventListener('click', async () => {
     const title = titleInput.value.trim();
     const dateVal = dateInput.value;
     const notes = notesInput.value.trim();
@@ -507,10 +549,27 @@
     generateBtn.disabled = true;
     setStatus('Generazione del PDF in corso...');
 
-    setTimeout(() => {
+    await new Promise(resolve => setTimeout(resolve, 30));
+
+    let mapCapture = null;
+    if (!mapBox.hidden && leafletMapInstance && typeof html2canvas === 'function'){
       try{
+        const canvas = await html2canvas(document.getElementById('leafletMap'), {
+          useCORS: true,
+          allowTaint: false,
+          logging: false
+        });
+        mapCapture = { dataUrl: canvas.toDataURL('image/jpeg', 0.85), width: canvas.width, height: canvas.height };
+      }catch(e){
+        mapCapture = null; // fallback a testo/coordinate più sotto
+      }
+    }
+
+    try{
         const NAVY = [15,31,41];
         const AMBER = [214,162,60];
+        const AMBER_DARK = [185,134,42];
+        const HEADER_BG = [244,238,224];
         const INK = [19,38,48];
         const INK_SOFT = [91,107,115];
         const LINE = [222,224,217];
@@ -536,21 +595,21 @@
           const size = Math.min(16, bandH - 8);
           const bx = pageW - margin - size;
           const by = (bandH - size) / 2;
-          doc.setFillColor(...AMBER);
+          doc.setFillColor(...NAVY);
           doc.roundedRect(bx, by, size, size, 2.5, 2.5, 'F');
           doc.setFont('helvetica','bold');
           doc.setFontSize(size * 0.7);
-          doc.setTextColor(...NAVY);
+          doc.setTextColor(255,255,255);
           doc.text(COMPANY_INITIALS, bx + size/2, by + size/2 + size*0.24, { align:'center' });
         }
 
         function drawMainHeader(){
           const bandH = 30;
-          doc.setFillColor(...NAVY);
+          doc.setFillColor(...HEADER_BG);
           doc.rect(0, 0, pageW, bandH, 'F');
           doc.setFont('helvetica','bold');
           doc.setFontSize(20);
-          doc.setTextColor(255,255,255);
+          doc.setTextColor(...NAVY);
           doc.text('Report in campo', margin, bandH/2 + 3.5);
           drawLogoBadge(bandH);
           doc.setDrawColor(...AMBER);
@@ -561,11 +620,11 @@
 
         function drawContinuationHeader(){
           const h = 15;
-          doc.setFillColor(...NAVY);
+          doc.setFillColor(...HEADER_BG);
           doc.rect(0, 0, pageW, h, 'F');
           doc.setFont('helvetica','bold');
           doc.setFontSize(11);
-          doc.setTextColor(255,255,255);
+          doc.setTextColor(...NAVY);
           doc.text('Report in campo', margin, 10);
           doc.setDrawColor(...AMBER);
           doc.setLineWidth(0.6);
@@ -606,7 +665,35 @@
 
         sectionLabel('Luogo');
         bodyText(title);
-        y += 6;
+        y += 4;
+
+        if (mapCapture){
+          let drawW = maxW;
+          let drawH = drawW * (mapCapture.height / mapCapture.width);
+          if (drawH > 70){ drawH = 70; drawW = drawH * (mapCapture.width / mapCapture.height); }
+          const xOffset = margin + (maxW - drawW) / 2;
+          if (y + drawH + 10 > bottomLimit) newPage();
+          doc.addImage(mapCapture.dataUrl, 'JPEG', xOffset, y, drawW, drawH);
+          y += drawH + 4;
+          doc.setFont('helvetica','normal');
+          doc.setFontSize(8);
+          doc.setTextColor(...INK_SOFT);
+          doc.text('© OpenStreetMap contributors', margin, y);
+          y += 6;
+        } else if (lastGeoCoords){
+          if (y + 14 > bottomLimit) newPage();
+          doc.setFont('helvetica','normal');
+          doc.setFontSize(9.5);
+          doc.setTextColor(...INK_SOFT);
+          doc.text(`Posizione GPS: ${lastGeoCoords.lat.toFixed(5)}, ${lastGeoCoords.lon.toFixed(5)}`, margin, y);
+          y += 5.5;
+          doc.setTextColor(...AMBER_DARK);
+          doc.textWithLink('Vedi su OpenStreetMap', margin, y, {
+            url: `https://www.openstreetmap.org/?mlat=${lastGeoCoords.lat}&mlon=${lastGeoCoords.lon}#map=18/${lastGeoCoords.lat}/${lastGeoCoords.lon}`
+          });
+          y += 8;
+        }
+        y += 2;
 
         sectionLabel('Data del sopralluogo');
         bodyText(formatDateIt(dateVal));
@@ -625,6 +712,7 @@
         }
 
         if (photos.length){
+          newPage();
           sectionLabel(`Documentazione fotografica (${photos.length})`);
           const gap = 6;
           const colW = (maxW - gap) / 2;
@@ -680,11 +768,10 @@
           doc.text(`Pagina ${p} di ${totalPages}`, pageW - margin, lineY + 5, { align:'right' });
         }
 
-        const safeTitle = title.toLowerCase()
-          .replace(/[^a-z0-9\s-]/gi,'')
-          .trim().replace(/\s+/g,'-')
-          .slice(0,40) || 'rapporto';
-        doc.save(`${safeTitle}-${dateVal}.pdf`);
+        const comuneRaw = extractComune(title) || title;
+        const comune = comuneRaw.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim() || 'Luogo';
+        const dateDots = formatDateIt(dateVal).replace(/\//g, '.');
+        doc.save(`Report ${comune} ${dateDots}.pdf`);
 
         setStatus('PDF generato e scaricato.', 'ok');
       }catch(err){
@@ -692,7 +779,6 @@
       }finally{
         generateBtn.disabled = false;
       }
-    }, 30);
   });
 })();
 </script>
