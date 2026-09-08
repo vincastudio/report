@@ -516,17 +516,27 @@
 
   function logAction(action){
     if (!session) return;
-    const payload = {
+    const payload = JSON.stringify({
       username: session.username,
       datetime: new Date().toISOString(),
       event: action
-    };
-    if (!LOG_WEBHOOK_URL || LOG_WEBHOOK_URL.indexOf('INSERIRE_URL') === 0) return; // webhook non ancora configurato
-    fetch(LOG_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }).catch(() => { /* il logging non deve mai bloccare l'uso dell'app */ });
+    });
+    if (!LOG_WEBHOOK_URL) return;
+    try{
+      if ('sendBeacon' in navigator){
+        const blob = new Blob([payload], { type: 'text/plain;charset=UTF-8' });
+        if (navigator.sendBeacon(LOG_WEBHOOK_URL, blob)) return;
+      }
+      fetch(LOG_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        keepalive: true,
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: payload
+      }).catch(() => { /* il logging non deve mai bloccare l'uso dell'app */ });
+    }catch(e){
+      // il logging non deve mai bloccare l'uso dell'app
+    }
   }
 
   function onLoginSuccess(){
@@ -556,7 +566,7 @@
     try{
       const resp = await fetch(LOGIN_WEBHOOK_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
         body: JSON.stringify({ username, password })
       });
       if (!resp.ok) throw new Error('Risposta non valida dal server');
