@@ -402,10 +402,8 @@
   const companyLogoImg = document.getElementById('companyLogoImg');
   const logoutBtn = document.getElementById('logoutBtn');
 
-  // Sostituisci con l'URL di produzione (senza "-test") una volta attivato il workflow n8n.
-  const LOGIN_WEBHOOK_URL = 'https://n8n.srv1194647.hstgr.cloud/webhook-test/sitereport-login';
-  // TODO: sostituire con l'URL di produzione (senza "-test") una volta attivato il workflow n8n.
-  const LOG_WEBHOOK_URL = 'https://n8n.srv1194647.hstgr.cloud/webhook-test/69b893cf-b9ad-4d21-b345-0d179db73b1d';
+  const LOGIN_WEBHOOK_URL = 'https://n8n.srv1194647.hstgr.cloud/webhook/sitereport-login';
+  const LOG_WEBHOOK_URL = 'https://n8n.srv1194647.hstgr.cloud/webhook/sitereport-event';
 
   let session = null; // { username, companyName, address, vat, website, email, logoUrl }
   let logoPdfData = null; // { dataUrl, width, height } — logo pronto per il PDF, se caricato con successo
